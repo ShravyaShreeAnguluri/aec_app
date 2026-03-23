@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+numpy
+opencv-python-headless
+insightface
+onnxruntime
+python-multipart
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pdfplumber
