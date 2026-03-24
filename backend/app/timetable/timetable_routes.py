@@ -20,8 +20,17 @@ from .timetable_schemas import (
     GenerateTimetableRequest,
 )
 from .timetable_generator import TimetableGenerator
-from .timetable_crud import get_faculty_schedule, get_section_schedule, get_faculty_subject_map_list
-from .timetable_utils import build_period_labels
+from .timetable_crud import (
+    get_faculty_schedule,
+    get_section_schedule,
+    get_faculty_subject_map_list,
+    validate_setup_for_department,
+)
+from .timetable_utils import (
+    build_period_labels,
+    validate_section_config,
+    validate_subject_config,
+)
 
 
 router = APIRouter(prefix="/timetable", tags=["Timetable"])
@@ -58,6 +67,16 @@ def create_section(
         start_time=data.start_time,          # NEW - operator sets this e.g. "09:30"
         created_by=user.get("faculty_id"),
     )
+
+    validation_errors = validate_section_config(obj)
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Section validation failed",
+                "errors": validation_errors,
+            },
+        )
 
     try:
         db.add(obj)
@@ -107,6 +126,16 @@ def create_subject(
     # model_dump() automatically includes all fields including fixed_every_working_day
     obj = TimetableSubject(**data.model_dump())
 
+    validation_errors = validate_subject_config(obj)
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Subject validation failed",
+                "errors": validation_errors,
+            },
+        )
+
     try:
         db.add(obj)
         db.commit()
@@ -146,6 +175,259 @@ def list_subjects(
     ).all()
 
 
+@router.put("/subjects/{subject_id}")
+def update_subject(
+    subject_id: int,
+    data: SubjectCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Update any field on an existing subject.
+    Use this to fix scheduling config (allowed_days, min_continuous_periods,
+    is_fixed, weekly_hours, etc.) without touching the database directly.
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableSubject).filter(TimetableSubject.id == subject_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    for field, value in data.model_dump().items():
+        setattr(obj, field, value)
+
+    validation_errors = validate_subject_config(obj)
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Subject validation failed", "errors": validation_errors},
+        )
+
+    try:
+        db.commit()
+        db.refresh(obj)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Update failed — check for duplicate code in same dept/year/sem/ay.",
+        )
+
+    return {"message": "Subject updated", "id": obj.id}
+
+
+@router.delete("/subjects/{subject_id}")
+def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Delete a subject and its faculty mappings.
+    Will fail if timetable entries exist — clear timetable first.
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableSubject).filter(TimetableSubject.id == subject_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    db.query(FacultySubjectMap).filter(
+        FacultySubjectMap.subject_id == subject_id
+    ).delete(synchronize_session=False)
+
+    try:
+        db.delete(obj)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete — timetable entries exist. Clear timetable first.",
+        )
+
+    return {"message": "Subject deleted", "id": subject_id}
+
+
+@router.put("/sections/{section_id}")
+def update_section(
+    section_id: int,
+    data: SectionCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Update an existing section (fix lunch timings, working_days, thub_reserved_periods etc.).
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableSection).filter(TimetableSection.id == section_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    for field, value in data.model_dump().items():
+        setattr(obj, field, value)
+
+    validation_errors = validate_section_config(obj)
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Section validation failed", "errors": validation_errors},
+        )
+
+    try:
+        db.commit()
+        db.refresh(obj)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Update failed — duplicate section name in same dept/ay.",
+        )
+
+    return {"message": "Section updated", "id": obj.id}
+
+
+@router.delete("/sections/{section_id}")
+def delete_section(
+    section_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Delete a section and all its timetable entries.
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableSection).filter(TimetableSection.id == section_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    from .timetable_models import TimetableEntry
+    db.query(TimetableEntry).filter(
+        TimetableEntry.section_id == section_id
+    ).delete(synchronize_session=False)
+
+    db.delete(obj)
+    db.commit()
+
+    return {"message": "Section deleted", "id": section_id}
+
+
+@router.delete("/faculty-subject-map/{map_id}")
+def delete_faculty_subject_map(
+    map_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Remove a faculty-subject mapping (e.g. wrong faculty assigned).
+    """
+    _ensure_role(user)
+
+    obj = db.query(FacultySubjectMap).filter(FacultySubjectMap.id == map_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    db.delete(obj)
+    db.commit()
+
+    return {"message": "Mapping deleted", "id": map_id}
+
+
+@router.put("/faculty-subject-map/{map_id}")
+def update_faculty_subject_map(
+    map_id: int,
+    data: FacultySubjectMapCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Update priority, max_hours_per_week, max_hours_per_day, can_handle_lab, is_primary
+    for an existing faculty-subject mapping.
+    """
+    _ensure_role(user)
+
+    obj = db.query(FacultySubjectMap).filter(FacultySubjectMap.id == map_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    obj.priority = data.priority
+    obj.max_hours_per_week = data.max_hours_per_week
+    obj.max_hours_per_day = data.max_hours_per_day
+    obj.can_handle_lab = data.can_handle_lab
+    obj.is_primary = data.is_primary
+
+    db.commit()
+    db.refresh(obj)
+
+    return {"message": "Mapping updated", "id": obj.id}
+
+
+@router.delete("/rooms/{room_id}")
+def delete_room(
+    room_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Delete a room. Fails if timetable entries reference it.
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableRoom).filter(TimetableRoom.id == room_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    try:
+        db.delete(obj)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete room — timetable entries reference it. Clear timetable first.",
+        )
+
+    return {"message": "Room deleted", "id": room_id}
+
+
+@router.put("/rooms/{room_id}")
+def update_room(
+    room_id: int,
+    data: RoomCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Update room name, type, or capacity.
+    """
+    _ensure_role(user)
+
+    obj = db.query(TimetableRoom).filter(TimetableRoom.id == room_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    existing = db.query(TimetableRoom).filter(
+        TimetableRoom.name == data.name,
+        TimetableRoom.id != room_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Another room with this name already exists")
+
+    for field, value in data.model_dump().items():
+        setattr(obj, field, value)
+
+    try:
+        db.commit()
+        db.refresh(obj)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Update failed")
+
+    return {"message": "Room updated", "id": obj.id}
+
+
 @router.post("/faculty-subject-map")
 def map_faculty_subject(
     data: FacultySubjectMapCreate,
@@ -174,6 +456,12 @@ def map_faculty_subject(
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="This faculty is already mapped to this subject")
+
+    if subject.no_faculty_required:
+        raise HTTPException(
+            status_code=400,
+            detail="This subject is marked as no_faculty_required, so faculty mapping is not needed",
+        )
 
     obj = FacultySubjectMap(
         faculty_id=faculty.id,
@@ -230,7 +518,21 @@ def list_rooms(
     _ensure_role(user)
     return db.query(TimetableRoom).order_by(TimetableRoom.room_type, TimetableRoom.name).all()
 
+@router.get("/validate-setup")
+def validate_setup(
+    department_id: int,
+    academic_year: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _ensure_role(user)
 
+    return validate_setup_for_department(
+        db=db,
+        department_id=department_id,
+        academic_year=academic_year,
+    )
+    
 @router.post("/generate/sync")
 def generate_timetable(
     data: GenerateTimetableRequest,
@@ -238,6 +540,21 @@ def generate_timetable(
     user=Depends(get_current_user),
 ):
     _ensure_role(user)
+
+    setup_check = validate_setup_for_department(
+        db=db,
+        department_id=data.department_id,
+        academic_year=data.academic_year,
+    )
+
+    if not setup_check["ok"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Timetable setup validation failed. Fix the issues before generation.",
+                "setup_check": setup_check,
+            },
+        )
 
     generator = TimetableGenerator(
         db=db,

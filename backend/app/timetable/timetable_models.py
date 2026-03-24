@@ -92,6 +92,10 @@ class TimetableSubject(Base):
 
     is_lab = Column(Boolean, nullable=False, default=False)
 
+    min_continuous_periods_thub = Column(Integer, nullable=True)
+    max_continuous_periods_thub = Column(Integer, nullable=True)
+    min_continuous_periods_non_thub = Column(Integer, nullable=True)
+    max_continuous_periods_non_thub = Column(Integer, nullable=True)
     # For labs: how many consecutive periods in one sitting
     # e.g. min=3, max=3 means always place 3 together
     # For CRT blocks: min=2, max=2

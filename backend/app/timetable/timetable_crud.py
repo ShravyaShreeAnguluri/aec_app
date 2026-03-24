@@ -7,6 +7,11 @@ from .timetable_models import (
     TimetableRoom,
     FacultySubjectMap,
 )
+from .timetable_utils import (
+    validate_section_config,
+    validate_subject_config,
+    validate_section_subject_feasibility,
+)
 
 
 def get_section_schedule(db: Session, section_id: int):
@@ -155,3 +160,117 @@ def get_faculty_subject_map_list(db: Session):
         )
 
     return result
+
+def validate_setup_for_department(
+    db: Session,
+    department_id: int,
+    academic_year: str,
+):
+    """
+    Validate timetable setup before generation.
+    Returns section-wise and subject-wise issues.
+    """
+    sections = (
+        db.query(TimetableSection)
+        .filter(
+            TimetableSection.department_id == department_id,
+            TimetableSection.academic_year == academic_year,
+        )
+        .order_by(
+            TimetableSection.year,
+            TimetableSection.semester,
+            TimetableSection.category,
+            TimetableSection.name,
+        )
+        .all()
+    )
+
+    subjects = (
+        db.query(TimetableSubject)
+        .filter(
+            TimetableSubject.department_id == department_id,
+            TimetableSubject.academic_year == academic_year,
+        )
+        .order_by(
+            TimetableSubject.year,
+            TimetableSubject.semester,
+            TimetableSubject.code,
+        )
+        .all()
+    )
+
+    section_errors = []
+    subject_errors = []
+    feasibility_errors = []
+    mapping_warnings = []
+
+    # validate each section
+    for section in sections:
+        errs = validate_section_config(section)
+        if errs:
+            section_errors.append(
+                {
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "errors": errs,
+                }
+            )
+
+    # validate each subject
+    for subject in subjects:
+        errs = validate_subject_config(subject)
+        if errs:
+            subject_errors.append(
+                {
+                    "subject_id": subject.id,
+                    "subject_code": subject.code,
+                    "subject_name": subject.name,
+                    "errors": errs,
+                }
+            )
+
+    # validate feasibility section-wise
+    for section in sections:
+        applicable_subjects = [
+            s for s in subjects
+            if s.year == section.year and s.semester == section.semester
+        ]
+        errs = validate_section_subject_feasibility(section, applicable_subjects)
+        if errs:
+            feasibility_errors.append(
+                {
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "errors": errs,
+                }
+            )
+
+    # faculty mapping warnings
+    for subject in subjects:
+        if getattr(subject, "no_faculty_required", False):
+            continue
+
+        count = (
+            db.query(FacultySubjectMap)
+            .filter(FacultySubjectMap.subject_id == subject.id)
+            .count()
+        )
+        if count == 0:
+            mapping_warnings.append(
+                {
+                    "subject_id": subject.id,
+                    "subject_code": subject.code,
+                    "subject_name": subject.name,
+                    "warning": "No faculty mapped",
+                }
+            )
+
+    return {
+        "sections_checked": len(sections),
+        "subjects_checked": len(subjects),
+        "section_errors": section_errors,
+        "subject_errors": subject_errors,
+        "feasibility_errors": feasibility_errors,
+        "mapping_warnings": mapping_warnings,
+        "ok": not (section_errors or subject_errors or feasibility_errors),
+    }
