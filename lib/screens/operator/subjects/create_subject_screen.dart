@@ -9,8 +9,13 @@ import '../../../widgets/app_dropdown_field.dart';
 
 class CreateSubjectScreen extends StatefulWidget {
   final String token;
+  final Map<String, dynamic>? subjectData;
 
-  const CreateSubjectScreen({super.key, required this.token});
+  const CreateSubjectScreen({
+    super.key,
+    required this.token,
+    this.subjectData,
+  });
 
   @override
   State<CreateSubjectScreen> createState() => _CreateSubjectScreenState();
@@ -19,7 +24,14 @@ class CreateSubjectScreen extends StatefulWidget {
 class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
   final Dio dio = Dio();
 
-  final departmentIdController = TextEditingController();
+  // ---------- Department dropdown ----------
+  // Add more departments here if needed
+  final Map<String, int> departmentOptions = const {
+    "CSE": 1,
+  };
+
+  String? selectedDepartmentName;
+
   final yearController = TextEditingController();
   final semesterController = TextEditingController();
   final academicYearController = TextEditingController(text: "2025-26");
@@ -37,7 +49,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
 
   final defaultRoomController = TextEditingController();
 
-  // Fixed subject fields
   final fixedDayController = TextEditingController();
   final fixedStartPeriodController = TextEditingController();
   final fixedSpanController = TextEditingController(text: "1");
@@ -49,7 +60,7 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
 
   bool isLab = false;
   bool isFixed = false;
-  bool fixedEveryWorkingDay = false; // FIX: was missing — needed for FIP
+  bool fixedEveryWorkingDay = false;
   bool noFacultyRequired = false;
   bool allowSameDayRepeat = false;
   bool loading = false;
@@ -58,6 +69,14 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
   final List<bool> selectedAllowedDays = List.generate(6, (_) => false);
   final List<bool> selectedAllowedPeriods = List.generate(8, (_) => false);
   final List<bool> selectedFixedDays = List.generate(6, (_) => false);
+
+  bool get isEditMode => widget.subjectData != null;
+
+  int? get editingSubjectId {
+    final value = widget.subjectData?["id"];
+    if (value == null) return null;
+    return int.tryParse(value.toString());
+  }
 
   String? chipsToCsv(List<bool> values) {
     final result = <int>[];
@@ -68,8 +87,21 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
     return result.join(",");
   }
 
-  /// FIX: Validates that exactly one fixed day option is set when isFixed=true.
-  /// Returns an error message string or null if valid.
+  void setCsvToChips(String? csv, List<bool> target) {
+    for (int i = 0; i < target.length; i++) {
+      target[i] = false;
+    }
+    if (csv == null || csv.trim().isEmpty) return;
+
+    final parts = csv.split(",");
+    for (final p in parts) {
+      final index = int.tryParse(p.trim());
+      if (index != null && index >= 0 && index < target.length) {
+        target[index] = true;
+      }
+    }
+  }
+
   String? _validateFixedOptions() {
     if (!isFixed) return null;
 
@@ -77,24 +109,81 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
     final hasChipDays = chipsToCsv(selectedFixedDays) != null;
     final hasEveryDay = fixedEveryWorkingDay;
 
-    final count = [hasSingleDay, hasChipDays, hasEveryDay]
-        .where((v) => v)
-        .length;
+    final count = [hasSingleDay, hasChipDays, hasEveryDay].where((v) => v).length;
 
     if (count == 0) {
-      return "Fixed subject needs a day option: enter a day number, select day chips, or enable 'Fixed Every Working Day'.";
+      return "Fixed subject needs one day option.";
     }
     if (count > 1) {
-      return "Fixed subject must use only ONE day option. Please clear the others.";
+      return "Fixed subject must use only one day option.";
     }
     if (fixedStartPeriodController.text.trim().isEmpty) {
-      return "Fixed subject needs a Fixed Start Period (e.g. 7 for last period).";
+      return "Fixed subject needs Fixed Start Period.";
     }
     return null;
   }
 
-  Future<void> createSubject() async {
-    if (departmentIdController.text.trim().isEmpty ||
+  void prefillIfEdit() {
+    final s = widget.subjectData;
+    if (s == null) return;
+
+    final deptId = int.tryParse((s["department_id"] ?? "").toString());
+    if (deptId != null) {
+      for (final entry in departmentOptions.entries) {
+        if (entry.value == deptId) {
+          selectedDepartmentName = entry.key;
+          break;
+        }
+      }
+    }
+
+    academicYearController.text = (s["academic_year"] ?? "2025-26").toString();
+    yearController.text = (s["year"] ?? "").toString();
+    semesterController.text = (s["semester"] ?? "").toString();
+
+    codeController.text = (s["code"] ?? "").toString();
+    nameController.text = (s["name"] ?? "").toString();
+    shortNameController.text = (s["short_name"] ?? "").toString();
+
+    subjectType = (s["subject_type"] ?? "THEORY").toString();
+    requiresRoomType = (s["requires_room_type"] ?? "CLASSROOM").toString();
+
+    isLab = s["is_lab"] == true;
+    isFixed = s["is_fixed"] == true;
+    fixedEveryWorkingDay = s["fixed_every_working_day"] == true;
+    noFacultyRequired = s["no_faculty_required"] == true;
+    allowSameDayRepeat = s["allow_same_day_repeat"] == true;
+
+    weeklyHoursController.text = (s["weekly_hours"] ?? 0).toString();
+    weeklyHoursThubController.text =
+        s["weekly_hours_thub"]?.toString() ?? "";
+    weeklyHoursNonThubController.text =
+        s["weekly_hours_non_thub"]?.toString() ?? "";
+
+    minContinuousController.text =
+        (s["min_continuous_periods"] ?? 1).toString();
+    maxContinuousController.text =
+        (s["max_continuous_periods"] ?? 1).toString();
+
+    defaultRoomController.text = s["default_room_name"]?.toString() ?? "";
+
+    fixedDayController.text = s["fixed_day"]?.toString() ?? "";
+    fixedStartPeriodController.text =
+        s["fixed_start_period"]?.toString() ?? "";
+    fixedSpanController.text = (s["fixed_span"] ?? 1).toString();
+
+    notesController.text = s["notes"]?.toString() ?? "";
+
+    setCsvToChips(s["allowed_days"]?.toString(), selectedAllowedDays);
+    setCsvToChips(s["allowed_periods"]?.toString(), selectedAllowedPeriods);
+    setCsvToChips(s["fixed_days"]?.toString(), selectedFixedDays);
+  }
+
+  Future<void> submitSubject() async {
+    final selectedDepartmentId =
+    selectedDepartmentName == null ? null : departmentOptions[selectedDepartmentName!];
+
+    if (selectedDepartmentId == null ||
         yearController.text.trim().isEmpty ||
         semesterController.text.trim().isEmpty ||
         academicYearController.text.trim().isEmpty ||
@@ -107,7 +196,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
       return;
     }
 
-    // FIX: validate fixed subject options before submitting
     final fixedError = _validateFixedOptions();
     if (fixedError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -122,10 +210,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
       final token =
           (await TokenService.getUserSession())["token"] ?? widget.token;
 
-      // FIX: Determine fixed day fields — only ONE must be non-null
-      // If fixedEveryWorkingDay is true → all day fields null
-      // If chip days selected → fixed_day = null, fixed_days = CSV
-      // If single day typed → fixed_day = int, fixed_days = null
       final String? resolvedFixedDays = (isFixed && !fixedEveryWorkingDay)
           ? (fixedDayController.text.trim().isEmpty
           ? chipsToCsv(selectedFixedDays)
@@ -138,98 +222,120 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
           : null)
           : null;
 
-      await dio.post(
-        "${ApiService.baseUrl}/timetable/subjects",
-        data: {
-          "department_id": int.parse(departmentIdController.text.trim()),
-          "year": int.parse(yearController.text.trim()),
-          "semester": int.parse(semesterController.text.trim()),
-          "academic_year": academicYearController.text.trim(),
-          "code": codeController.text.trim(),
-          "name": nameController.text.trim(),
-          "short_name": shortNameController.text.trim(),
-          "subject_type": subjectType,
-          "weekly_hours":
-          int.tryParse(weeklyHoursController.text.trim()) ?? 0,
-          "weekly_hours_thub":
-          weeklyHoursThubController.text.trim().isEmpty
-              ? null
-              : int.tryParse(weeklyHoursThubController.text.trim()),
-          "weekly_hours_non_thub":
-          weeklyHoursNonThubController.text.trim().isEmpty
-              ? null
-              : int.tryParse(weeklyHoursNonThubController.text.trim()),
-          "is_lab": isLab,
-          "min_continuous_periods":
-          int.tryParse(minContinuousController.text.trim()) ?? 1,
-          "max_continuous_periods":
-          int.tryParse(maxContinuousController.text.trim()) ?? 1,
-          "requires_room_type": requiresRoomType,
-          "default_room_name": defaultRoomController.text.trim().isEmpty
-              ? null
-              : defaultRoomController.text.trim(),
-          "is_fixed": isFixed,
-          // FIX: fixed_every_working_day now correctly sent
-          "fixed_every_working_day": isFixed ? fixedEveryWorkingDay : false,
-          // FIX: only one of these will be non-null
-          "fixed_day": resolvedFixedDay,
-          "fixed_days": resolvedFixedDays,
-          // FIX: fixed_start_period sent as null when isFixed=false
-          "fixed_start_period": isFixed
-              ? int.tryParse(fixedStartPeriodController.text.trim())
-              : null,
-          "fixed_span":
-          isFixed ? (int.tryParse(fixedSpanController.text.trim()) ?? 1) : 1,
-          "allowed_days": chipsToCsv(selectedAllowedDays),
-          "allowed_periods": chipsToCsv(selectedAllowedPeriods),
-          "no_faculty_required": noFacultyRequired,
-          "allow_same_day_repeat": allowSameDayRepeat,
-          "notes": notesController.text.trim().isEmpty
-              ? null
-              : notesController.text.trim(),
-        },
-        options: Options(headers: {"Authorization": "Bearer $token"}),
-      );
+      final payload = {
+        "department_id": selectedDepartmentId,
+        "year": int.parse(yearController.text.trim()),
+        "semester": int.parse(semesterController.text.trim()),
+        "academic_year": academicYearController.text.trim(),
+        "code": codeController.text.trim(),
+        "name": nameController.text.trim(),
+        "short_name": shortNameController.text.trim(),
+        "subject_type": subjectType,
+        "weekly_hours": int.tryParse(weeklyHoursController.text.trim()) ?? 0,
+        "weekly_hours_thub": weeklyHoursThubController.text.trim().isEmpty
+            ? null
+            : int.tryParse(weeklyHoursThubController.text.trim()),
+        "weekly_hours_non_thub":
+        weeklyHoursNonThubController.text.trim().isEmpty
+            ? null
+            : int.tryParse(weeklyHoursNonThubController.text.trim()),
+        "is_lab": isLab,
+        "min_continuous_periods":
+        int.tryParse(minContinuousController.text.trim()) ?? 1,
+        "max_continuous_periods":
+        int.tryParse(maxContinuousController.text.trim()) ?? 1,
+        "requires_room_type": requiresRoomType,
+        "default_room_name": defaultRoomController.text.trim().isEmpty
+            ? null
+            : defaultRoomController.text.trim(),
+        "is_fixed": isFixed,
+        "fixed_every_working_day": isFixed ? fixedEveryWorkingDay : false,
+        "fixed_day": resolvedFixedDay,
+        "fixed_days": resolvedFixedDays,
+        "fixed_start_period":
+        isFixed ? int.tryParse(fixedStartPeriodController.text.trim()) : null,
+        "fixed_span":
+        isFixed ? (int.tryParse(fixedSpanController.text.trim()) ?? 1) : 1,
+        "allowed_days": chipsToCsv(selectedAllowedDays),
+        "allowed_periods": chipsToCsv(selectedAllowedPeriods),
+        "no_faculty_required": noFacultyRequired,
+        "allow_same_day_repeat": allowSameDayRepeat,
+        "notes": notesController.text.trim().isEmpty
+            ? null
+            : notesController.text.trim(),
+      };
 
-      // Reset form
-      codeController.clear();
-      nameController.clear();
-      shortNameController.clear();
-      weeklyHoursController.text = "0";
-      weeklyHoursThubController.clear();
-      weeklyHoursNonThubController.clear();
-      minContinuousController.text = "1";
-      maxContinuousController.text = "1";
-      defaultRoomController.clear();
-      fixedDayController.clear();
-      fixedStartPeriodController.clear();
-      fixedSpanController.text = "1";
-      notesController.clear();
+      if (isEditMode && editingSubjectId != null) {
+        await dio.put(
+          "${ApiService.baseUrl}/timetable/subjects/$editingSubjectId",
+          data: payload,
+          options: Options(headers: {"Authorization": "Bearer $token"}),
+        );
 
-      for (int i = 0; i < selectedAllowedDays.length; i++) {
-        selectedAllowedDays[i] = false;
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Subject updated successfully")),
+        );
+        Navigator.pop(context, true);
+      } else {
+        await dio.post(
+          "${ApiService.baseUrl}/timetable/subjects",
+          data: payload,
+          options: Options(headers: {"Authorization": "Bearer $token"}),
+        );
+
+        codeController.clear();
+        nameController.clear();
+        shortNameController.clear();
+        weeklyHoursController.text = "0";
+        weeklyHoursThubController.clear();
+        weeklyHoursNonThubController.clear();
+        minContinuousController.text = "1";
+        maxContinuousController.text = "1";
+        defaultRoomController.clear();
+        fixedDayController.clear();
+        fixedStartPeriodController.clear();
+        fixedSpanController.text = "1";
+        notesController.clear();
+
+        for (int i = 0; i < selectedAllowedDays.length; i++) {
+          selectedAllowedDays[i] = false;
+        }
+        for (int i = 0; i < selectedAllowedPeriods.length; i++) {
+          selectedAllowedPeriods[i] = false;
+        }
+        for (int i = 0; i < selectedFixedDays.length; i++) {
+          selectedFixedDays[i] = false;
+        }
+
+        if (!mounted) return;
+        setState(() {
+          isFixed = false;
+          fixedEveryWorkingDay = false;
+          isLab = false;
+          subjectType = "THEORY";
+          requiresRoomType = "CLASSROOM";
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Subject created successfully")),
+        );
       }
-      for (int i = 0; i < selectedAllowedPeriods.length; i++) {
-        selectedAllowedPeriods[i] = false;
-      }
-      for (int i = 0; i < selectedFixedDays.length; i++) {
-        selectedFixedDays[i] = false;
-      }
-
-      if (!mounted) return;
-      setState(() {
-        isFixed = false;
-        fixedEveryWorkingDay = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Subject created successfully")),
-      );
     } on DioException catch (e) {
-      // FIX: show actual backend error message
       if (!mounted) return;
-      final msg = e.response?.data?["detail"]?.toString() ??
-          "Failed to create subject. Check all fields.";
+
+      String msg = "Failed to save subject";
+      final detail = e.response?.data?["detail"];
+
+      if (detail is String) {
+        msg = detail;
+      } else if (detail is Map && detail["message"] != null) {
+        msg = detail["message"].toString();
+        if (detail["errors"] is List && (detail["errors"] as List).isNotEmpty) {
+          msg += "\n${(detail["errors"] as List).join("\n")}";
+        }
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
@@ -282,8 +388,22 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    selectedDepartmentName = departmentOptions.keys.first;
+
+    if (yearController.text.isEmpty) {
+      yearController.text = "3";
+    }
+    if (semesterController.text.isEmpty) {
+      semesterController.text = "6";
+    }
+
+    prefillIfEdit();
+  }
+
+  @override
   void dispose() {
-    departmentIdController.dispose();
     yearController.dispose();
     semesterController.dispose();
     academicYearController.dispose();
@@ -306,7 +426,7 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
   @override
   Widget build(BuildContext context) {
     return AppPageShell(
-      title: "Create Subject",
+      title: isEditMode ? "Update Subject" : "Create Subject",
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -318,48 +438,84 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                 color: Colors.blue.shade50,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
-                "Examples:\n"
+              child: Text(
+                isEditMode
+                    ? "Update the subject details below."
+                    : "Examples:\n"
                     "• Theory → weekly_hours = 3, min/max continuous = 1\n"
                     "• Lab → is_lab = true, min/max continuous = 3\n"
                     "• FIP → type=FIP, is_fixed=true, fixed_every_working_day=true, fixed_start_period=7, no_faculty=true\n"
                     "• PSA → type=PSA, allowed_days selected, no_faculty=true",
-                style: TextStyle(height: 1.5),
+                style: const TextStyle(height: 1.5),
               ),
             ),
             const SizedBox(height: 12),
 
-            // ── Basic Info ──────────────────────────────────────────
-            AppTextField(
-              controller: departmentIdController,
-              label: "Department ID",
-              hint: "Enter department id",
-              keyboardType: TextInputType.number,
+            AppDropdownField<String>(
+              label: "Department",
+              value: selectedDepartmentName ?? departmentOptions.keys.first,
+              items: departmentOptions.keys
+                  .map(
+                    (dept) => DropdownMenuItem<String>(
+                  value: dept,
+                  child: Text(dept),
+                ),
+              )
+                  .toList(),
+              onChanged: (val) {
+                if (val == null) return;
+                setState(() => selectedDepartmentName = val);
+              },
             ),
+
             AppTextField(
               controller: academicYearController,
               label: "Academic Year",
               hint: "2025-26",
             ),
+
             Row(
               children: [
                 Expanded(
-                  child: AppTextField(
-                    controller: yearController,
+                  child: AppDropdownField<String>(
                     label: "Year",
-                    keyboardType: TextInputType.number,
+                    value: yearController.text,
+                    items: const [
+                      DropdownMenuItem(value: "1", child: Text("1")),
+                      DropdownMenuItem(value: "2", child: Text("2")),
+                      DropdownMenuItem(value: "3", child: Text("3")),
+                      DropdownMenuItem(value: "4", child: Text("4")),
+                    ],
+                    onChanged: (val) {
+                      if (val == null) return;
+                      setState(() => yearController.text = val);
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: AppTextField(
-                    controller: semesterController,
+                  child: AppDropdownField<String>(
                     label: "Semester",
-                    keyboardType: TextInputType.number,
+                    value: semesterController.text,
+                    items: const [
+                      DropdownMenuItem(value: "1", child: Text("1")),
+                      DropdownMenuItem(value: "2", child: Text("2")),
+                      DropdownMenuItem(value: "3", child: Text("3")),
+                      DropdownMenuItem(value: "4", child: Text("4")),
+                      DropdownMenuItem(value: "5", child: Text("5")),
+                      DropdownMenuItem(value: "6", child: Text("6")),
+                      DropdownMenuItem(value: "7", child: Text("7")),
+                      DropdownMenuItem(value: "8", child: Text("8")),
+                    ],
+                    onChanged: (val) {
+                      if (val == null) return;
+                      setState(() => semesterController.text = val);
+                    },
                   ),
                 ),
               ],
             ),
+
             AppTextField(
               controller: codeController,
               label: "Subject Code",
@@ -376,7 +532,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               hint: "Example: CC",
             ),
 
-            // ── Subject Type ────────────────────────────────────────
             AppDropdownField<String>(
               label: "Subject Type",
               value: subjectType,
@@ -393,12 +548,14 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                 if (val == null) return;
                 setState(() {
                   subjectType = val;
+
                   if (val == "LAB") {
                     isLab = true;
                     requiresRoomType = "LAB";
                     minContinuousController.text = "3";
                     maxContinuousController.text = "3";
                   }
+
                   if (val == "FIP") {
                     isFixed = true;
                     fixedEveryWorkingDay = true;
@@ -406,13 +563,14 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                     requiresRoomType = "NONE";
                     weeklyHoursController.text = "0";
                   }
-                  if (val == "THUB") {
+
+                  if (val == "THUB" || val == "PSA") {
                     noFacultyRequired = true;
                     requiresRoomType = "NONE";
                   }
-                  if (val == "PSA") {
-                    noFacultyRequired = true;
-                    requiresRoomType = "NONE";
+
+                  if (val == "THEORY" && !isEditMode) {
+                    isLab = false;
                   }
                 });
               },
@@ -447,8 +605,7 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                   SwitchListTile(
                     value: isFixed,
                     title: const Text("Is Fixed Subject"),
-                    subtitle: const Text(
-                        "Has a fixed day/period (FIP, PSA, etc.)"),
+                    subtitle: const Text("Has a fixed day/period"),
                     onChanged: (value) {
                       setState(() {
                         isFixed = value;
@@ -460,8 +617,7 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                   SwitchListTile(
                     value: noFacultyRequired,
                     title: const Text("No Faculty Required"),
-                    subtitle: const Text(
-                        "For FIP, THUB blocks, PSA activity"),
+                    subtitle: const Text("For FIP / THUB / PSA"),
                     onChanged: (value) {
                       setState(() => noFacultyRequired = value);
                     },
@@ -470,8 +626,7 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                   SwitchListTile(
                     value: allowSameDayRepeat,
                     title: const Text("Allow Same Day Repeat"),
-                    subtitle: const Text(
-                        "Subject can appear twice on same day"),
+                    subtitle: const Text("Subject can appear twice on same day"),
                     onChanged: (value) {
                       setState(() => allowSameDayRepeat = value);
                     },
@@ -480,7 +635,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               ),
             ),
 
-            // ── Weekly Hours ────────────────────────────────────────
             sectionTitle("Weekly Hours"),
             AppTextField(
               controller: weeklyHoursController,
@@ -501,18 +655,17 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               keyboardType: TextInputType.number,
             ),
 
-            // ── Room Settings ───────────────────────────────────────
             sectionTitle("Room Settings"),
             AppDropdownField<String>(
               label: "Required Room Type",
               value: requiresRoomType,
               items: const [
-                DropdownMenuItem(
-                    value: "CLASSROOM", child: Text("CLASSROOM")),
+                DropdownMenuItem(value: "CLASSROOM", child: Text("CLASSROOM")),
                 DropdownMenuItem(value: "LAB", child: Text("LAB")),
                 DropdownMenuItem(
-                    value: "NONE",
-                    child: Text("NONE (FIP / THUB / PSA)")),
+                  value: "NONE",
+                  child: Text("NONE (FIP / THUB / PSA)"),
+                ),
               ],
               onChanged: (val) {
                 if (val != null) setState(() => requiresRoomType = val);
@@ -524,7 +677,6 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               hint: "e.g. LAB-1 / BGB-111",
             ),
 
-            // ── Lab Continuous Periods ──────────────────────────────
             if (isLab) ...[
               sectionTitle("Lab Continuous Periods"),
               AppTextField(
@@ -541,20 +693,17 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               ),
             ],
 
-            // ── Allowed Days / Periods (theory only) ────────────────
             if (!isLab) ...[
-              sectionTitle("Allowed Days (optional — leave blank for any day)"),
+              sectionTitle("Allowed Days (optional)"),
               buildChips(labels: dayNames, values: selectedAllowedDays),
               const SizedBox(height: 12),
-              sectionTitle(
-                  "Allowed Periods (optional — leave blank for any period)"),
+              sectionTitle("Allowed Periods (optional)"),
               buildChips(
                 labels: List.generate(8, (i) => "P${i + 1}"),
                 values: selectedAllowedPeriods,
               ),
             ],
 
-            // ── Fixed Subject Settings ──────────────────────────────
             if (isFixed) ...[
               sectionTitle("Fixed Subject Settings"),
               Container(
@@ -564,16 +713,15 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
-                  "Choose EXACTLY ONE day option:\n"
-                      "• Option A: Enable 'Fixed Every Working Day' (for FIP)\n"
-                      "• Option B: Select days using chips below\n"
-                      "• Option C: Type a single day number in the field",
+                  "Choose exactly one day option:\n"
+                      "• Fixed Every Working Day\n"
+                      "• Select fixed days using chips\n"
+                      "• Enter one fixed day number",
                   style: TextStyle(fontSize: 12, height: 1.5),
                 ),
               ),
               const SizedBox(height: 10),
 
-              // FIX: fixed_every_working_day toggle — was completely missing
               Card(
                 elevation: 0,
                 color: fixedEveryWorkingDay
@@ -585,12 +733,10 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                 child: SwitchListTile(
                   value: fixedEveryWorkingDay,
                   title: const Text("Fixed Every Working Day"),
-                  subtitle: const Text(
-                      "Use for FIP — placed last period every day"),
+                  subtitle: const Text("Use for FIP"),
                   onChanged: (value) {
                     setState(() {
                       fixedEveryWorkingDay = value;
-                      // Clear other day options when this is enabled
                       if (value) {
                         fixedDayController.clear();
                         for (int i = 0; i < selectedFixedDays.length; i++) {
@@ -604,23 +750,19 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
 
               if (!fixedEveryWorkingDay) ...[
                 const SizedBox(height: 10),
-                sectionTitle("Option B: Select Fixed Days"),
+                sectionTitle("Select Fixed Days"),
                 buildChips(labels: dayNames, values: selectedFixedDays),
                 const SizedBox(height: 8),
-                sectionTitle("Option C: Single Fixed Day Number"),
-                // Using plain TextField here because we need onChanged to
-                // auto-clear chips — AppTextField does not expose onChanged.
+                sectionTitle("Single Fixed Day Number"),
                 TextField(
                   controller: fixedDayController,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: "Fixed Day (0=Mon, 1=Tue ... 5=Sat)",
+                    labelText: "Fixed Day (0=Mon ... 5=Sat)",
                     hintText: "Example: 0 for Monday",
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (_) {
-                    // When operator types a day number, clear the chip selection
-                    // so that only ONE fixed-day option is active at a time.
                     if (fixedDayController.text.trim().isNotEmpty) {
                       setState(() {
                         for (int i = 0; i < selectedFixedDays.length; i++) {
@@ -636,18 +778,17 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
               AppTextField(
                 controller: fixedStartPeriodController,
                 label: "Fixed Start Period Index (0-based)",
-                hint: "0=P1, 1=P2 ... 7=P8 (last period for FIP)",
+                hint: "0=P1, 1=P2 ... 7=P8",
                 keyboardType: TextInputType.number,
               ),
               AppTextField(
                 controller: fixedSpanController,
-                label: "Fixed Span (number of periods)",
+                label: "Fixed Span",
                 hint: "1 for FIP, 2 or 3 for multi-period fixed",
                 keyboardType: TextInputType.number,
               ),
             ],
 
-            // ── Notes ───────────────────────────────────────────────
             AppTextField(
               controller: notesController,
               label: "Notes (optional)",
@@ -656,9 +797,9 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
             ),
             const SizedBox(height: 16),
             AppPrimaryButton(
-              text: "Create Subject",
+              text: isEditMode ? "Update Subject" : "Create Subject",
               loading: loading,
-              onPressed: createSubject,
+              onPressed: submitSubject,
             ),
           ],
         ),

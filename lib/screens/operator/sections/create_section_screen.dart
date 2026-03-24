@@ -2,14 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../../services/api_service.dart';
 import '../../../services/token_service.dart';
-import '../../../widgets/app_page_shell.dart';
-import '../../../widgets/app_primary_button.dart';
-import '../../../widgets/app_text_field.dart';
-import '../../../widgets/app_dropdown_field.dart';
+import '../timetable/departmentdropdown.dart';
+import '../timetable/timetableapp_theme.dart';
 
 class CreateSectionScreen extends StatefulWidget {
   final String token;
-
   const CreateSectionScreen({super.key, required this.token});
 
   @override
@@ -19,31 +16,27 @@ class CreateSectionScreen extends StatefulWidget {
 class _CreateSectionScreenState extends State<CreateSectionScreen> {
   final Dio dio = Dio();
 
-  final departmentIdController = TextEditingController();
+  int? selectedDepartmentId;
   final sectionNameController = TextEditingController();
-  final yearController = TextEditingController();
-  final semesterController = TextEditingController();
   final academicYearController = TextEditingController(text: "2025-26");
   final classroomController = TextEditingController();
   final totalPeriodsController = TextEditingController(text: "8");
-
-  // FIX: added start_time, slot_duration_minutes, lunch_duration_minutes
   final startTimeController = TextEditingController(text: "09:30");
-  int slotDurationMinutes = 50;
-  int lunchDurationMinutes = 60; // II yr = 50 min, III yr = 60 min
 
+  int year = 3;
+  int semester = 6;
+  int slotDurationMinutes = 50;
+  int lunchDurationMinutes = 60;
+  int lunchSlot = 3;
   String category = "NON_THUB";
   bool loading = false;
 
   final List<String> dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   List<bool> selectedDays = [true, true, true, true, true, false];
-
   List<bool> selectedThubSlots = List.generate(8, (_) => false);
 
-  int lunchSlot = 3;
-
   String getWorkingDays() {
-    List<int> days = [];
+    final days = <int>[];
     for (int i = 0; i < selectedDays.length; i++) {
       if (selectedDays[i]) days.add(i);
     }
@@ -51,134 +44,84 @@ class _CreateSectionScreenState extends State<CreateSectionScreen> {
   }
 
   String? getThubSlots() {
-    List<int> slots = [];
+    final slots = <int>[];
     for (int i = 0; i < selectedThubSlots.length; i++) {
       if (selectedThubSlots[i]) slots.add(i);
     }
-    if (slots.isEmpty) return null;
-    return slots.join(",");
+    return slots.isEmpty ? null : slots.join(",");
   }
 
   Future<void> createSection() async {
-    if (sectionNameController.text.trim().isEmpty ||
-        departmentIdController.text.trim().isEmpty ||
-        yearController.text.trim().isEmpty ||
-        semesterController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Department ID, Name, Year and Semester are required")),
-      );
-      return;
-    }
-
-    // FIX: warn if THUB section has no reserved slots set
+    if (selectedDepartmentId == null) { _snack("Please select a department"); return; }
+    if (sectionNameController.text.trim().isEmpty) { _snack("Section name is required"); return; }
     if (category == "THUB" && getThubSlots() == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              "THUB sections must have THUB Reserved Periods selected (e.g. P1, P2, P3)."),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      _snack("THUB sections must have reserved periods selected");
       return;
     }
-
-    // FIX: warn if NON_THUB section has thub slots selected
     if (category == "NON_THUB" && getThubSlots() != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              "NON_THUB sections should not have THUB reserved periods. Please clear them."),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      _snack("NON_THUB sections should not have THUB reserved periods");
       return;
     }
-
-    // Validate start_time format
     final startTime = startTimeController.text.trim();
-    final timeRegex = RegExp(r'^\d{2}:\d{2}$');
-    if (!timeRegex.hasMatch(startTime)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Start time must be in HH:MM format, e.g. 09:30")),
-      );
+    if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(startTime)) {
+      _snack("Start time must be in HH:MM format");
       return;
     }
 
+    setState(() => loading = true);
     try {
-      setState(() => loading = true);
-
-      final token =
-          (await TokenService.getUserSession())["token"] ?? widget.token;
-
+      final token = (await TokenService.getUserSession())["token"] ?? widget.token;
       await dio.post(
         "${ApiService.baseUrl}/timetable/sections",
         data: {
-          "department_id": int.tryParse(departmentIdController.text.trim()),
+          "department_id": selectedDepartmentId,
           "name": sectionNameController.text.trim(),
-          "year": int.parse(yearController.text.trim()),
-          "semester": int.parse(semesterController.text.trim()),
+          "year": year,
+          "semester": semester,
           "academic_year": academicYearController.text.trim(),
           "category": category,
-          "classroom": classroomController.text.trim().isEmpty
-              ? null
-              : classroomController.text.trim(),
-          "total_periods_per_day":
-          int.parse(totalPeriodsController.text.trim()),
+          "classroom": classroomController.text.trim().isEmpty ? null : classroomController.text.trim(),
+          "total_periods_per_day": int.parse(totalPeriodsController.text.trim()),
           "working_days": getWorkingDays(),
           "lunch_after_period": lunchSlot,
           "thub_reserved_periods": getThubSlots(),
-          // FIX: now sending all three timing fields
           "start_time": startTime,
           "slot_duration_minutes": slotDurationMinutes,
           "lunch_duration_minutes": lunchDurationMinutes,
         },
         options: Options(headers: {"Authorization": "Bearer $token"}),
       );
-
       if (!mounted) return;
-
-      // Reset form
       sectionNameController.clear();
-      yearController.clear();
-      semesterController.clear();
       classroomController.clear();
       startTimeController.text = "09:30";
       setState(() {
         selectedDays = [true, true, true, true, true, false];
         selectedThubSlots = List.generate(8, (_) => false);
         lunchSlot = 3;
-        lunchDurationMinutes = 60;
-        slotDurationMinutes = 50;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Section created successfully")),
-      );
+      _snack("Section created successfully ✓", success: true);
     } on DioException catch (e) {
-      // FIX: show actual backend error
       if (!mounted) return;
-      final msg = e.response?.data?["detail"]?.toString() ??
-          "Failed to create section. Check all fields.";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
-      );
+      _snack(e.response?.data?["detail"]?.toString() ?? "Failed to create section");
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.toString()}")),
-      );
+      _snack("Error: ${e.toString()}");
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
+  void _snack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: success ? TimetableAppTheme.success : null,
+    ));
+  }
+
   @override
   void dispose() {
-    departmentIdController.dispose();
     sectionNameController.dispose();
-    yearController.dispose();
-    semesterController.dispose();
     academicYearController.dispose();
     classroomController.dispose();
     totalPeriodsController.dispose();
@@ -188,236 +131,264 @@ class _CreateSectionScreenState extends State<CreateSectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AppPageShell(
-      title: "Create Section",
-      child: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: TimetableAppTheme.background,
+      appBar: TimetableAppTheme.buildAppBar(context, "Create Section"),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Info box
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                "Examples:\n"
-                    "• 2nd Year NON_THUB → Mon–Fri (uncheck Sat), lunch=50min\n"
-                    "• 2nd Year THUB → Mon–Sat, select THUB periods (P1,P2,P3), lunch=50min\n"
-                    "• 3rd Year → Mon–Sat, lunch=60min\n"
-                    "• Start time is usually 09:30 for all sections",
-                style: TextStyle(height: 1.5),
+            TimetableAppTheme.infoBanner(
+              "Examples:\n"
+                  "• 2nd Yr NON_THUB → Mon–Fri, lunch = 50 min\n"
+                  "• 2nd Yr THUB → Mon–Sat, select THUB periods (P1,P2,P3), lunch = 50 min\n"
+                  "• 3rd Yr → Mon–Sat, lunch = 60 min\n"
+                  "• Start time is usually 09:30",
+            ),
+            const SizedBox(height: 16),
+
+            TimetableAppTheme.card(
+              child: Column(
+                children: [
+                  TimetableAppTheme.sectionHeader("Basic Info"),
+                  DepartmentDropdown(
+                    token: widget.token,
+                    value: selectedDepartmentId,
+                    onChanged: (id, _) => setState(() => selectedDepartmentId = id),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: sectionNameController,
+                    decoration: TimetableAppTheme.inputDecoration(
+                      "Section Name",
+                      hint: "e.g. CSE-A / CSE-1 / CSE-9",
+                      prefixIcon: const Icon(Icons.class_outlined, size: 18),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: academicYearController,
+                    decoration: TimetableAppTheme.inputDecoration("Academic Year", hint: "2025-26"),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: _dropdown<int>(
+                        label: "Year",
+                        value: year,
+                        items: {1: "1st Year", 2: "2nd Year", 3: "3rd Year", 4: "4th Year"},
+                        onChanged: (v) { if (v != null) setState(() => year = v); },
+                      )),
+                      const SizedBox(width: 12),
+                      Expanded(child: _dropdown<int>(
+                        label: "Semester",
+                        value: semester,
+                        items: {for (int i = 1; i <= 8; i++) i: "Sem $i"},
+                        onChanged: (v) { if (v != null) setState(() => semester = v); },
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Category chips
+                  TimetableAppTheme.sectionHeader("Category"),
+                  Row(
+                    children: ["NON_THUB", "THUB", "REGULAR"].map((cat) {
+                      final selected = category == cat;
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: GestureDetector(
+                            onTap: () => setState(() {
+                              category = cat;
+                              if (cat == "NON_THUB") selectedDays[5] = false;
+                              else selectedDays[5] = true;
+                              if (cat != "THUB") {
+                                for (int i = 0; i < selectedThubSlots.length; i++) selectedThubSlots[i] = false;
+                              }
+                            }),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                              decoration: BoxDecoration(
+                                gradient: selected ? TimetableAppTheme.primaryGradient : null,
+                                color: selected ? null : TimetableAppTheme.surfaceAlt,
+                                borderRadius: BorderRadius.circular(TimetableAppTheme.radiusMd),
+                                border: Border.all(color: selected ? Colors.transparent : TimetableAppTheme.border),
+                              ),
+                              child: Text(
+                                cat == "NON_THUB" ? "NON_THUB" : cat,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: selected ? Colors.white : TimetableAppTheme.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: classroomController,
+                    decoration: TimetableAppTheme.inputDecoration("Classroom (optional)", hint: "e.g. BGB-111"),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: totalPeriodsController,
+                    keyboardType: TextInputType.number,
+                    decoration: TimetableAppTheme.inputDecoration("Total Periods Per Day (incl. lunch)", hint: "8"),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
 
-            AppTextField(
-              controller: departmentIdController,
-              label: "Department ID",
-              hint: "Enter department id",
-              keyboardType: TextInputType.number,
-            ),
-            AppTextField(
-              controller: sectionNameController,
-              label: "Section Name",
-              hint: "Example: CSE-A / CSE-1 / CSE-9",
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: AppTextField(
-                    controller: yearController,
-                    label: "Year",
-                    keyboardType: TextInputType.number,
+            TimetableAppTheme.card(
+              child: Column(
+                children: [
+                  TimetableAppTheme.sectionHeader("Timing Settings"),
+                  TextFormField(
+                    controller: startTimeController,
+                    decoration: TimetableAppTheme.inputDecoration("Start Time (HH:MM)", hint: "09:30",
+                        prefixIcon: const Icon(Icons.access_time_outlined, size: 18)),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppTextField(
-                    controller: semesterController,
-                    label: "Semester",
-                    keyboardType: TextInputType.number,
+                  const SizedBox(height: 12),
+                  _dropdown<int>(
+                    label: "Slot Duration (minutes)",
+                    value: slotDurationMinutes,
+                    items: {50: "50 minutes", 55: "55 minutes", 60: "60 minutes"},
+                    onChanged: (v) { if (v != null) setState(() => slotDurationMinutes = v); },
                   ),
-                ),
-              ],
-            ),
-            AppTextField(
-              controller: academicYearController,
-              label: "Academic Year",
-              hint: "2025-26",
-            ),
-            AppDropdownField<String>(
-              label: "Category",
-              value: category,
-              items: const [
-                DropdownMenuItem(value: "NON_THUB", child: Text("NON_THUB")),
-                DropdownMenuItem(value: "THUB", child: Text("THUB")),
-                DropdownMenuItem(value: "REGULAR", child: Text("REGULAR")),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    category = val;
-                    // Auto-set Saturday based on category
-                    if (val == "NON_THUB") {
-                      selectedDays[5] = false; // Sat off for NON_THUB II yr
-                    } else {
-                      selectedDays[5] = true; // Sat on for THUB / III yr
-                    }
-                    // Clear THUB slots if switching away from THUB
-                    if (val != "THUB") {
-                      for (int i = 0;
-                      i < selectedThubSlots.length;
-                      i++) {
-                        selectedThubSlots[i] = false;
-                      }
-                    }
-                  });
-                }
-              },
-            ),
-            AppTextField(
-              controller: classroomController,
-              label: "Classroom (optional)",
-              hint: "e.g. BGB-111 / BGB-204",
-            ),
-            AppTextField(
-              controller: totalPeriodsController,
-              label: "Total Periods Per Day (including lunch)",
-              hint: "8 = 7 teaching + 1 lunch",
-              keyboardType: TextInputType.number,
-            ),
-
-            const SizedBox(height: 16),
-            // ── Timing Settings ─────────────────────────────────────
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Timing Settings",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  const SizedBox(height: 12),
+                  _dropdown<int>(
+                    label: "Lunch Break Duration",
+                    value: lunchDurationMinutes,
+                    items: {50: "50 minutes", 60: "60 minutes"},
+                    onChanged: (v) { if (v != null) setState(() => lunchDurationMinutes = v); },
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 10),
-            AppTextField(
-              controller: startTimeController,
-              label: "Start Time (HH:MM)",
-              hint: "09:30",
             ),
             const SizedBox(height: 12),
-            // FIX: slot_duration_minutes now collected from operator
-            AppDropdownField<int>(
-              label: "Slot Duration (minutes per period)",
-              value: slotDurationMinutes,
-              items: const [
-                DropdownMenuItem(value: 50, child: Text("50 minutes")),
-                DropdownMenuItem(value: 55, child: Text("55 minutes")),
-                DropdownMenuItem(value: 60, child: Text("60 minutes")),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() => slotDurationMinutes = v);
-              },
-            ),
-            const SizedBox(height: 4),
-            // FIX: lunch_duration_minutes now collected from operator
-            AppDropdownField<int>(
-              label: "Lunch Break Duration (minutes)",
-              value: lunchDurationMinutes,
-              items: const [
-                DropdownMenuItem(
-                    value: 50,
-                    child: Text("50 min")),
-                DropdownMenuItem(
-                    value: 60,
-                    child: Text("60 min")),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() => lunchDurationMinutes = v);
-              },
+
+            TimetableAppTheme.card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TimetableAppTheme.sectionHeader("Working Days"),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: List.generate(dayNames.length, (i) {
+                      final selected = selectedDays[i];
+                      return GestureDetector(
+                        onTap: () => setState(() => selectedDays[i] = !selectedDays[i]),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 50,
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          decoration: BoxDecoration(
+                            gradient: selected ? TimetableAppTheme.primaryGradient : null,
+                            color: selected ? null : TimetableAppTheme.surfaceAlt,
+                            borderRadius: BorderRadius.circular(TimetableAppTheme.radiusMd),
+                            border: Border.all(color: selected ? Colors.transparent : TimetableAppTheme.border),
+                          ),
+                          child: Text(
+                            dayNames[i],
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: selected ? Colors.white : TimetableAppTheme.textSecondary,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  TimetableAppTheme.sectionHeader("Lunch After Period"),
+                  _dropdown<int>(
+                    label: "Lunch Slot",
+                    value: lunchSlot,
+                    items: {for (int i = 0; i < 8; i++) i: "After Period ${i + 1}"},
+                    onChanged: (v) { if (v != null) setState(() => lunchSlot = v); },
+                  ),
+                ],
+              ),
             ),
 
-            const SizedBox(height: 16),
-            // ── Working Days ─────────────────────────────────────────
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Working Days",
-                style: TextStyle(fontWeight: FontWeight.bold),
+            if (category == "THUB") ...[
+              const SizedBox(height: 12),
+              TimetableAppTheme.card(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TimetableAppTheme.sectionHeader("THUB Reserved Periods"),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: List.generate(8, (i) {
+                        final selected = selectedThubSlots[i];
+                        return GestureDetector(
+                          onTap: () => setState(() => selectedThubSlots[i] = !selectedThubSlots[i]),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: 50,
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: selected ? Colors.orange.shade600 : TimetableAppTheme.surfaceAlt,
+                              borderRadius: BorderRadius.circular(TimetableAppTheme.radiusMd),
+                              border: Border.all(
+                                color: selected ? Colors.orange.shade600 : TimetableAppTheme.border,
+                              ),
+                            ),
+                            child: Text(
+                              "P${i + 1}",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                color: selected ? Colors.white : TimetableAppTheme.textSecondary,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              children: List.generate(dayNames.length, (i) {
-                return FilterChip(
-                  label: Text(dayNames[i]),
-                  selected: selectedDays[i],
-                  onSelected: (val) {
-                    setState(() => selectedDays[i] = val);
-                  },
-                );
-              }),
-            ),
-
-            const SizedBox(height: 16),
-            // ── Lunch Slot ───────────────────────────────────────────
-            DropdownButtonFormField<int>(
-              value: lunchSlot,
-              decoration: const InputDecoration(
-                labelText: "Lunch After Period",
-                border: OutlineInputBorder(),
-              ),
-              items: List.generate(8, (i) {
-                return DropdownMenuItem(
-                  value: i,
-                  child: Text("After Period ${i + 1}  (slot index $i)"),
-                );
-              }),
-              onChanged: (val) {
-                if (val != null) setState(() => lunchSlot = val);
-              },
-            ),
-
-            const SizedBox(height: 16),
-            // ── THUB Reserved Periods ────────────────────────────────
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "THUB Reserved Periods",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            const SizedBox(height: 4),
-            if (category != "THUB")
-              const Text(
-                "Only needed for THUB sections",
-                style: TextStyle(fontSize: 12, color: Colors.black45),
-              ),
-            Wrap(
-              spacing: 8,
-              children: List.generate(8, (i) {
-                return FilterChip(
-                  label: Text("P${i + 1}"),
-                  selected: selectedThubSlots[i],
-                  onSelected: category == "THUB"
-                      ? (val) {
-                    setState(() => selectedThubSlots[i] = val);
-                  }
-                      : null, // disabled for NON_THUB / REGULAR
-                );
-              }),
-            ),
+            ],
 
             const SizedBox(height: 20),
-            AppPrimaryButton(
+            TimetableAppTheme.primaryButton(
               text: "Create Section",
               loading: loading,
               onPressed: createSection,
+              icon: Icons.add_circle_outline,
             ),
+            const SizedBox(height: 32),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _dropdown<T>({
+    required String label,
+    required T value,
+    required Map<T, String> items,
+    required void Function(T?) onChanged,
+  }) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      decoration: TimetableAppTheme.inputDecoration(label),
+      items: items.entries.map((e) => DropdownMenuItem<T>(value: e.key, child: Text(e.value))).toList(),
+      onChanged: onChanged,
     );
   }
 }

@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../../services/api_service.dart';
 import '../../../services/token_service.dart';
-import '../../../widgets/app_page_shell.dart';
-import '../../../widgets/app_primary_button.dart';
-import '../../../widgets/app_text_field.dart';
+import '../timetable/departmentdropdown.dart';
+import '../timetable/timetableapp_theme.dart';
 
 class CreateRoomScreen extends StatefulWidget {
   final String token;
-
   const CreateRoomScreen({super.key, required this.token});
 
   @override
@@ -18,7 +16,7 @@ class CreateRoomScreen extends StatefulWidget {
 class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final Dio dio = Dio();
 
-  final departmentIdController = TextEditingController();
+  int? selectedDepartmentId;
   final roomNameController = TextEditingController();
   final capacityController = TextEditingController();
 
@@ -26,26 +24,20 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
   bool loading = false;
 
   Future<void> createRoom() async {
-    if (roomNameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Room name is required")),
-      );
+    final name = roomNameController.text.trim();
+    if (name.isEmpty) {
+      _snack("Room name is required");
       return;
     }
 
+    setState(() => loading = true);
     try {
-      setState(() => loading = true);
-
-      final token =
-          (await TokenService.getUserSession())["token"] ?? widget.token;
-
+      final token = (await TokenService.getUserSession())["token"] ?? widget.token;
       await dio.post(
         "${ApiService.baseUrl}/timetable/rooms",
         data: {
-          "department_id": departmentIdController.text.trim().isEmpty
-              ? null
-              : int.tryParse(departmentIdController.text.trim()),
-          "name": roomNameController.text.trim(),
+          "department_id": selectedDepartmentId,
+          "name": name,
           "room_type": roomType,
           "capacity": capacityController.text.trim().isEmpty
               ? null
@@ -55,36 +47,30 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       );
 
       if (!mounted) return;
-
-      // Reset form
       roomNameController.clear();
       capacityController.clear();
       setState(() => roomType = "CLASSROOM");
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Room created successfully")),
-      );
+      _snack("Room created successfully ✓", success: true);
     } on DioException catch (e) {
       if (!mounted) return;
-      // FIX: show actual backend error
-      final msg = e.response?.data?["detail"]?.toString() ??
-          "Failed to create room";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
-      );
+      _snack(e.response?.data?["detail"]?.toString() ?? "Failed to create room");
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.toString()}")),
-      );
+      _snack("Error: ${e.toString()}");
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
+  void _snack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: success ? TimetableAppTheme.success : null,
+    ));
+  }
+
   @override
   void dispose() {
-    departmentIdController.dispose();
     roomNameController.dispose();
     capacityController.dispose();
     super.dispose();
@@ -92,75 +78,117 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AppPageShell(
-      title: "Create Room",
-      child: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: TimetableAppTheme.background,
+      appBar: TimetableAppTheme.buildAppBar(context, "Create Room"),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                "Examples:\n"
-                    "• Classroom: BGB-111, BGB-204, BGB-212\n"
-                    "• Lab: LAB-1, LAB-2, LAB-3, CNS-LAB\n\n"
-                    "Create all rooms and labs first before creating sections and subjects.",
-                style: TextStyle(height: 1.5),
-              ),
+            TimetableAppTheme.infoBanner(
+              "Examples:\n"
+                  "• Classroom: BGB-111, BGB-204, BGB-212\n"
+                  "• Lab: LAB-1, LAB-2, LAB-3, CNS-LAB\n\n"
+                  "Create all rooms and labs before creating sections.",
             ),
             const SizedBox(height: 16),
 
-            AppTextField(
-              controller: departmentIdController,
-              label: "Department ID (optional)",
-              hint: "Leave empty for shared rooms/labs",
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: roomNameController,
-              label: "Room Name",
-              hint: "e.g. BGB-111 or LAB-1",
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: roomType,
-              decoration: const InputDecoration(
-                labelText: "Room Type",
-                border: OutlineInputBorder(),
+            TimetableAppTheme.card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TimetableAppTheme.sectionHeader("Room Details"),
+                  const SizedBox(height: 4),
+
+                  // Department (optional)
+                  DepartmentDropdown(
+                    token: widget.token,
+                    value: selectedDepartmentId,
+                    label: "Department (optional — leave if shared)",
+                    onChanged: (id, _) => setState(() => selectedDepartmentId = id),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: roomNameController,
+                    decoration: TimetableAppTheme.inputDecoration(
+                      "Room Name",
+                      hint: "e.g. BGB-111 or LAB-1",
+                      prefixIcon: const Icon(Icons.meeting_room_outlined, size: 18),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Room type chips
+                  TimetableAppTheme.sectionHeader("Room Type"),
+                  Row(
+                    children: ["CLASSROOM", "LAB"].map((type) {
+                      final selected = roomType == type;
+                      final isLab = type == "LAB";
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(right: isLab ? 0 : 8),
+                          child: GestureDetector(
+                            onTap: () => setState(() => roomType = type),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(
+                                gradient: selected ? TimetableAppTheme.primaryGradient : null,
+                                color: selected ? null : TimetableAppTheme.surfaceAlt,
+                                borderRadius: BorderRadius.circular(TimetableAppTheme.radiusMd),
+                                border: Border.all(
+                                  color: selected ? Colors.transparent : TimetableAppTheme.border,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isLab ? Icons.science_outlined : Icons.meeting_room_outlined,
+                                    size: 18,
+                                    color: selected ? Colors.white : TimetableAppTheme.textSecondary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    type,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: selected ? Colors.white : TimetableAppTheme.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: capacityController,
+                    keyboardType: TextInputType.number,
+                    decoration: TimetableAppTheme.inputDecoration(
+                      "Capacity (optional)",
+                      hint: "e.g. 60",
+                      prefixIcon: const Icon(Icons.people_outline, size: 18),
+                    ),
+                  ),
+                ],
               ),
-              items: const [
-                DropdownMenuItem(
-                  value: "CLASSROOM",
-                  child: Text("CLASSROOM — regular teaching room"),
-                ),
-                DropdownMenuItem(
-                  value: "LAB",
-                  child: Text("LAB — lab session room"),
-                ),
-              ],
-              onChanged: (value) {
-                if (value != null) setState(() => roomType = value);
-              },
             ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: capacityController,
-              label: "Capacity (optional)",
-              hint: "e.g. 60",
-              keyboardType: TextInputType.number,
-            ),
+
             const SizedBox(height: 20),
-            AppPrimaryButton(
+            TimetableAppTheme.primaryButton(
               text: "Create Room",
               loading: loading,
               onPressed: createRoom,
+              icon: Icons.add_circle_outline,
             ),
+            const SizedBox(height: 32),
           ],
         ),
       ),
