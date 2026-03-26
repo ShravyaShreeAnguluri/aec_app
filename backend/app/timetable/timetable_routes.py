@@ -40,6 +40,21 @@ def _ensure_role(user):
     if user["role"] not in ["admin", "operator", "hod", "dean"]:
         raise HTTPException(status_code=403, detail="Not allowed")
 
+def _ensure_role_or_self_faculty(user, faculty_id: str):
+    if user["role"] in ["admin", "operator", "hod", "dean"]:
+        return
+    if user["role"] == "faculty" and user.get("faculty_id") == faculty_id:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Not allowed — you can only view your own schedule.",
+    )
+
+
+def _ensure_can_view_section(user):
+    if user["role"] not in ["admin", "operator", "hod", "dean", "faculty"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
 
 @router.post("/sections")
 def create_section(
@@ -93,17 +108,22 @@ def create_section(
 def list_sections(
     department_id: int,
     academic_year: str,
+    year: int = None, 
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _ensure_role(user)
+    _ensure_can_view_section(user)
+ 
+    query = db.query(TimetableSection).filter(
+        TimetableSection.department_id == department_id,
+        TimetableSection.academic_year == academic_year,
+    )
+ 
+    if year is not None:
+        query = query.filter(TimetableSection.year == year)
 
     rows = (
-        db.query(TimetableSection)
-        .filter(
-            TimetableSection.department_id == department_id,
-            TimetableSection.academic_year == academic_year,
-        )
+        query
         .order_by(
             TimetableSection.year,
             TimetableSection.semester,
@@ -570,7 +590,7 @@ def section_schedule(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _ensure_role(user)
+    _ensure_can_view_section(user)
 
     section = db.query(TimetableSection).filter(TimetableSection.id == section_id).first()
     if not section:
@@ -601,7 +621,7 @@ def faculty_schedule(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _ensure_role(user)
+    _ensure_role_or_self_faculty(user, faculty_id)
 
     faculty, schedule = get_faculty_schedule(db, faculty_id)
     if faculty is None:

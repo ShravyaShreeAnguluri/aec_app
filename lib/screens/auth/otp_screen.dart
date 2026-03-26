@@ -35,12 +35,14 @@ class _OTPLoginScreenState extends State<OTPLoginScreen> {
       final result =
       await ApiService.verifyOtp(widget.email, otpController.text);
 
+      if (!mounted) return;
       setState(() => isLoading = false);
 
       // ✅ SAVE JWT TOKEN
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("token", result["access_token"]);
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result["message"] ?? "Login successful")),
       );
@@ -76,7 +78,10 @@ class _OTPLoginScreenState extends State<OTPLoginScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => DeanDashboardScreen(name: result["name"]),
+            builder: (_) => DeanDashboardScreen(
+              name: result["name"],
+              email: result["email"] ?? widget.email,
+            ),
           ),
         );
       }

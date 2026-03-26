@@ -442,10 +442,10 @@ class _CreateSubjectScreenState extends State<CreateSubjectScreen> {
                 isEditMode
                     ? "Update the subject details below."
                     : "Examples:\n"
-                    "• Theory → weekly_hours = 3, min/max continuous = 1\n"
-                    "• Lab → is_lab = true, min/max continuous = 3\n"
-                    "• FIP → type=FIP, is_fixed=true, fixed_every_working_day=true, fixed_start_period=7, no_faculty=true\n"
-                    "• PSA → type=PSA, allowed_days selected, no_faculty=true",
+                    "• Theory → weekly_hours = 3, \nmin/max continuous = 1\n"
+                    "• Lab → is_lab = true, \n min/max continuous = 3\n"
+                    "• FIP → type=FIP, \nis_fixed=true, \nfixed_every_working_day=true, \nfixed_start_period=7, \nno_faculty=true\n"
+                    "• PSA → type=PSA, \nallowed_days selected, \nno_faculty=true",
                 style: const TextStyle(height: 1.5),
               ),
             ),

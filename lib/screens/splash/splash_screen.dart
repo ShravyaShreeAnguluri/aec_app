@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../dashboards/admin/admin_dashboard_screen.dart';
+import '../../dashboards/dean/dean_dashboard_screen.dart';
 import '../../dashboards/faculty/faculty_dashboard_screen.dart';
 import '../../dashboards/hod/hod_dashboard_screen.dart';
 import '../../main.dart'; // 🔥 IMPORTANT to access openedFromDeepLink
@@ -30,6 +31,7 @@ class _SplashScreenState extends State<SplashScreen>
     final email = user["email"];
 
     if (!mounted) return;
+
     if (token != null &&
         token.isNotEmpty &&
         email != null &&
@@ -37,62 +39,77 @@ class _SplashScreenState extends State<SplashScreen>
 
       final role = user["role"] ?? "faculty";
 
+      // ── key fix: getUserSession() stores "facultyId", NOT "faculty_id" ──
+      final facultyId   = user["facultyId"] ?? "";
+      final name        = user["name"] ?? "";
+      final department  = user["department"] ?? "";
+      final designation = user["designation"];
+      final qualification = user["qualification"];
+      final profileImage  = user["profileImage"];
+
       if (role == "admin") {
 
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => AdminDashboardScreen(
-              name: user["name"] ?? "",
-            ),
+            builder: (_) => AdminDashboardScreen(name: name),
           ),
         );
 
-      }
-      else if (role == "hod") {
+      } else if (role == "hod") {
 
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => HodDashboardScreen(
-              name: user["name"] ?? "",
-              department: user["department"] ?? "",
+              name: name,
+              department: department,
             ),
           ),
         );
 
-      }
-      else if (role == "operator") {
+      } else if (role == "dean") {
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DeanDashboardScreen(
+              name: name,
+              email: email,
+            ),
+          ),
+        );
+
+      } else if (role == "operator") {
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => OperatorDashboardScreen(
-              name: user["name"] ?? "",
-              department: user["department"] ?? "",
-              token: user["access_token"] ?? "",
+              name: name,
+              department: department,
+              token: token,          // ── fix: was user["access_token"], key is "token"
             ),
           ),
         );
 
-      }
-      else {
-
+      } else {
+        // faculty + any unknown role
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => FacultyDashboardScreen(
-              email: user["email"] ?? "",
-              name: user["name"] ?? "",
-              facultyId: user["facultyId"] ?? "",
-              department: user["department"] ?? "",
-              designation: user["designation"],
-              qualification: user["qualification"],
-              profileImage: user["profileImage"],
-              role: user["role"] ?? "faculty",
+              email: email,
+              name: name,
+              facultyId: facultyId,  // ── fix: was user["faculty_id"], key is "facultyId"
+              department: department,
+              designation: designation,
+              qualification: qualification,
+              profileImage: profileImage,
+              role: role,
             ),
           ),
         );
-
       }
 
     } else {
@@ -100,7 +117,6 @@ class _SplashScreenState extends State<SplashScreen>
       Navigator.pushReplacementNamed(context, '/login');
 
     }
-
   }
 
   @override
@@ -112,17 +128,11 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 1500),
     );
 
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeIn),
     );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
 
@@ -131,7 +141,6 @@ class _SplashScreenState extends State<SplashScreen>
     Future.delayed(const Duration(seconds: 4), () {
       checkLogin();
     });
-
   }
 
   @override
@@ -269,5 +278,4 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
-
 }

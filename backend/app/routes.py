@@ -256,6 +256,24 @@ def verify_otp(data: OTPVerifyRequest, db: Session = Depends(get_db)):
         "profile_image": base64.b64encode(user.profile_image).decode() if user.profile_image else None
     }
 
+@router.post("/change-password")
+def change_password(
+    data: schemas.ChangePasswordRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user = db.query(Faculty).filter(
+        Faculty.email == current_user["email"]
+    ).first()
+
+    if not verify_password(data.current_password, user.password):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+
+    user.password = hash_password(data.new_password)
+    db.commit()
+
+    return {"message": "Password updated successfully"}
+
 # ATTENDANCE TIME RULES
 
 CLOCK_IN_START = time(9, 0)
@@ -659,6 +677,70 @@ def get_today_attendance_status(
         "working_hours": 0.0,
         "day_fraction": 0.0,
         "used_permission": False
+    }
+
+@router.get("/attendance/history")
+def get_attendance_history(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    faculty = crud.get_faculty_by_email(db, current_user["email"])
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    records = crud.get_attendance_history(
+        db=db,
+        faculty_id=faculty.faculty_id,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+    return [
+        {
+            "id": row.id,
+            "date": str(row.date),
+            "faculty_id": row.faculty_id,
+            "faculty_name": row.faculty_name,
+            "clock_in_time": str(row.clock_in_time) if row.clock_in_time else None,
+            "clock_out_time": str(row.clock_out_time) if row.clock_out_time else None,
+            "status": row.status,
+            "remarks": row.remarks,
+            "day_fraction": row.day_fraction,
+            "used_permission": row.used_permission,
+            "working_hours": row.working_hours,
+            "auto_marked": row.auto_marked
+        }
+        for row in records
+    ]
+
+
+@router.get("/attendance/report/summary")
+def get_attendance_report_summary(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    faculty = crud.get_faculty_by_email(db, current_user["email"])
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    summary = crud.get_attendance_summary(
+        db=db,
+        faculty_id=faculty.faculty_id,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+    return {
+        "faculty_id": faculty.faculty_id,
+        "faculty_name": faculty.name,
+        "department": faculty.department,
+        "start_date": str(start_date) if start_date else None,
+        "end_date": str(end_date) if end_date else None,
+        **summary
     }
 
 # ---------- FORGET-PASSWORD ----------

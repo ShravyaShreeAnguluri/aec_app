@@ -6,6 +6,8 @@ from app.leave.leave_crud import auto_escalate_leaves
 from app.leave.leave_models import Leave
 from app.holiday.holiday_service import validate_attendance_not_holiday
 
+ALLOWED_ATTENDANCE_ROLES = ["faculty", "hod", "dean", "operator"]
+
 def auto_mark_absent():
     db = SessionLocal()
     try:
@@ -18,7 +20,9 @@ def auto_mark_absent():
             print("Holiday or Sunday - skipping auto absent")
             return
 
-        faculty_list = db.query(Faculty).all()
+        faculty_list = db.query(Faculty).filter(
+            Faculty.role.in_(ALLOWED_ATTENDANCE_ROLES)
+        ).all()
 
         for faculty in faculty_list:
             existing = db.query(Attendance).filter(

@@ -303,6 +303,7 @@ class ApiService {
       throw Exception(jsonDecode(response.body)['detail']);
     }
   }
+
   static Future<Map<String, dynamic>> getProfile() async {
 
     final token = await TokenService.getToken();
@@ -321,25 +322,36 @@ class ApiService {
       throw Exception("Failed to load profile");
     }
   }
-  // UPDATE PROFILE
+
+  // =====================================================
+  // UPDATE PROFILE — FIX: Authorization header added
+  // =====================================================
   static Future<void> updateProfile({
-    required String email,
     required String name,
     String? designation,
     String? qualification,
     dynamic profileImage,
   }) async {
+    // 1. Get token first — if missing, trigger unauthorized flow
+    final token = await TokenService.getToken();
+    if (token == null || token.isEmpty) {
+      await handleUnauthorized();
+      return;
+    }
+
     var uri = Uri.parse("$baseUrl/update-profile");
     var request = http.MultipartRequest("PUT", uri);
 
-    request.fields['email'] = email;
+    // 2. CRITICAL: attach the Bearer token to the multipart request
+    request.headers['Authorization'] = 'Bearer $token';
+
     request.fields['name'] = name;
 
-    if (designation != null) {
+    if (designation != null && designation.isNotEmpty) {
       request.fields['designation'] = designation;
     }
 
-    if (qualification != null) {
+    if (qualification != null && qualification.isNotEmpty) {
       request.fields['qualification'] = qualification;
     }
 
@@ -363,11 +375,23 @@ class ApiService {
     }
 
     var response = await request.send();
+    final respStr = await response.stream.bytesToString();
 
-    if (response.statusCode != 200) {
-      throw Exception("Profile update failed");
+    if (response.statusCode == 200) return;
+
+    if (response.statusCode == 401) {
+      await handleUnauthorized();
+      return;
     }
+
+    try {
+      final body = jsonDecode(respStr);
+      throw Exception(body['detail'] ?? "Profile update failed");
+    } catch (_) {}
+
+    throw Exception("Profile update failed");
   }
+
   static Future<List<dynamic>> getFacultyList() async {
 
     final token = await TokenService.getToken();
@@ -405,8 +429,8 @@ class ApiService {
     if (response.statusCode == 200) {
       return;
     } else {
-        final data = jsonDecode(response.body);
-        throw Exception(data["detail"] ?? "Upgrade failed");
+      final data = jsonDecode(response.body);
+      throw Exception(data["detail"] ?? "Upgrade failed");
     }
   }
 
@@ -466,7 +490,7 @@ class ApiService {
       }
     } catch (_) {}
 
-      throw Exception("Request Failed");
+    throw Exception("Request Failed");
   }
 
   static Future<dynamic> post(
@@ -584,6 +608,7 @@ class ApiService {
   static Future<Map<String, dynamic>> getLeaveStats() async {
     return await get("/leave/leave-stats");
   }
+
   static Future<List> getHolidays() async {
     final data = await get("/holidays/");
     return data as List;
@@ -776,5 +801,79 @@ class ApiService {
     } else {
       throw Exception('Failed to fetch today attendance status');
     }
+  }
+
+  static Future<List<dynamic>> getAttendanceHistory({
+    String? startDate,
+    String? endDate,
+  }) async {
+    final token = await TokenService.getToken();
+
+    String url = "$baseUrl/attendance/history";
+    List<String> params = [];
+
+    if (startDate != null && startDate.isNotEmpty) {
+      params.add("start_date=$startDate");
+    }
+    if (endDate != null && endDate.isNotEmpty) {
+      params.add("end_date=$endDate");
+    }
+
+    if (params.isNotEmpty) {
+      url += "?${params.join("&")}";
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else if (response.statusCode == 401) {
+      await handleUnauthorized();
+    }
+
+    throw Exception("Failed to load attendance history");
+  }
+
+  static Future<Map<String, dynamic>> getAttendanceSummary({
+    String? startDate,
+    String? endDate,
+  }) async {
+    final token = await TokenService.getToken();
+
+    String url = "$baseUrl/attendance/report/summary";
+    List<String> params = [];
+
+    if (startDate != null && startDate.isNotEmpty) {
+      params.add("start_date=$startDate");
+    }
+    if (endDate != null && endDate.isNotEmpty) {
+      params.add("end_date=$endDate");
+    }
+
+    if (params.isNotEmpty) {
+      url += "?${params.join("&")}";
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else if (response.statusCode == 401) {
+      await handleUnauthorized();
+    }
+
+    throw Exception("Failed to load attendance summary");
   }
 }

@@ -93,6 +93,9 @@ class OTPVerify(BaseModel):
 class ForgotPasswordRequest(EmailBase):
     pass
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 class ResetPasswordWithTokenRequest(BaseModel):
     token: str
