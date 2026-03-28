@@ -9,3 +9,7 @@ sqlalchemy
 psycopg2-binary
 python-dotenv
 pdfplumber
+apscheduler
+bcrypt
+python-jose[cryptography]
+alembic
