@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from app.routes import router
 from app.scheduler import start_scheduler
 from app.docs.docs_routes import router as docs_router
+from app.database import Base, engine
+from app import models
 
 app = FastAPI(title="Faculty Face Backend")
 Base.metadata.create_all(bind=engine)
