@@ -7,6 +7,7 @@ from app.scheduler import start_scheduler
 from app.docs.docs_routes import router as docs_router
 
 app = FastAPI(title="Faculty Face Backend")
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
