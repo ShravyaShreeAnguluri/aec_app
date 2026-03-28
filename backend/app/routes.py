@@ -48,6 +48,15 @@ def seed_departments(db: Session = Depends(get_db)):
 
     db.commit()
     return {"message": "Departments added"}
+from sqlalchemy import text
+
+@router.get("/db-test")
+def db_test(db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text("SELECT 1"))
+        return {"message": "DB connected"}
+    except Exception as e:
+        return {"error": str(e)}
 @router.post("/register", response_model=schemas.FacultyResponse)
 async def register_faculty(
     faculty_id: str = Form(...),
