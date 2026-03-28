@@ -31,7 +31,7 @@ from .timetable_utils import (
     validate_section_config,
     validate_subject_config,
 )
-
+from app.admin.admin_routes import router as admin_router
 
 router = APIRouter(prefix="/timetable", tags=["Timetable"])
 

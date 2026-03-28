@@ -8,6 +8,7 @@ from app.scheduler import start_scheduler
 from app.holiday.holiday_routes import router as holiday_router
 from app.docs.docs_routes import router as docs_router
 from app.timetable.timetable_routes import router as timetable_router
+from app.admin.admin_routes import router as admin_router
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -29,6 +30,7 @@ app.include_router(router)
 app.include_router(holiday_router)
 app.include_router(docs_router)
 app.include_router(timetable_router)
+router.include_router(admin_router)
 
 @app.on_event("startup")
 def startup_event():

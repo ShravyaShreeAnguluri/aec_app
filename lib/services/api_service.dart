@@ -456,7 +456,10 @@ class ApiService {
       throw Exception(data["detail"] ?? "Upgrade to Dean failed");
 
     }
+  }
 
+  static Future<void> assignOperator(String facultyId) async {
+    await put("/assign-operator/$facultyId");
   }
 
   static Future<dynamic> get(String endpoint) async {
@@ -491,6 +494,47 @@ class ApiService {
     } catch (_) {}
 
     throw Exception("Request Failed");
+  }
+
+  static Future<dynamic> put(
+      String endpoint, {
+        Map<String, dynamic>? body,
+      }) async {
+    final token = await TokenService.getToken();
+
+    if (token == null || token.isEmpty) {
+      await handleUnauthorized();
+    }
+
+    final response = await http.put(
+      Uri.parse("$baseUrl$endpoint"),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json"
+      },
+      body: body != null ? jsonEncode(body) : null,
+    );
+
+    final data = response.body.isNotEmpty ? jsonDecode(response.body) : null;
+
+    if (response.statusCode == 200) {
+      return data;
+    }
+
+    if (response.statusCode == 401) {
+      await handleUnauthorized();
+    }
+
+    try {
+      final resBody = jsonDecode(response.body);
+      if (resBody["detail"] != null) {
+        throw Exception(resBody["detail"].toString());
+      }
+    } catch (_) {}
+
+    throw Exception(
+      data != null && data["detail"] != null ? data["detail"] : "Request failed",
+    );
   }
 
   static Future<dynamic> post(
@@ -875,5 +919,61 @@ class ApiService {
     }
 
     throw Exception("Failed to load attendance summary");
+  }
+
+  // ================= ADMIN METHODS =================
+
+// Dashboard
+  static Future<Map<String, dynamic>> getAdminDashboardSummary() async {
+    final data = await get("/admin/dashboard-summary");
+    return Map<String, dynamic>.from(data);
+  }
+
+// Faculty list (admin view)
+  static Future<List<dynamic>> getAdminFacultyList() async {
+    final data = await get("/admin/faculty-list");
+    return List<dynamic>.from(data);
+  }
+
+// Role summary
+  static Future<Map<String, dynamic>> getAdminRoleSummary() async {
+    final data = await get("/admin/role-summary");
+    return Map<String, dynamic>.from(data);
+  }
+
+// Leave summary
+  static Future<Map<String, dynamic>> getAdminLeaveSummary() async {
+    final data = await get("/admin/leave-summary");
+    return Map<String, dynamic>.from(data);
+  }
+
+// Department status
+  static Future<List<dynamic>> getAdminDepartmentStatus() async {
+    final data = await get("/admin/department-status");
+    return List<dynamic>.from(data);
+  }
+
+// Reports
+  static Future<Map<String, dynamic>> getAdminAttendanceOverview({
+    String? startDate,
+    String? endDate,
+  }) async {
+    String endpoint = "/admin/reports/attendance-overview";
+
+    List<String> params = [];
+
+    if (startDate != null && startDate.isNotEmpty) {
+      params.add("start_date=$startDate");
+    }
+    if (endDate != null && endDate.isNotEmpty) {
+      params.add("end_date=$endDate");
+    }
+
+    if (params.isNotEmpty) {
+      endpoint += "?${params.join("&")}";
+    }
+
+    final data = await get(endpoint);
+    return Map<String, dynamic>.from(data);
   }
 }

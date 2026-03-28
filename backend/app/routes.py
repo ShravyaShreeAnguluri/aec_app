@@ -26,11 +26,13 @@ from app.holiday.holiday_service import validate_leave_range_has_working_day
 from .schemas import LoginRequest, OTPRequest, OTPVerifyRequest, FacultyCreate
 from app.leave.leave_models import Leave
 from app.timetable.timetable_routes import router as timetable_router
+from app.admin.admin_routes import router as admin_router
 
 router = APIRouter()
 router.include_router(leave_router)
 router.include_router(holiday_router)
 router.include_router(timetable_router)
+router.include_router(admin_router)
 
 # =====================================================
 # REGISTER FACULTY
