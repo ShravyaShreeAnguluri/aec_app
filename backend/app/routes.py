@@ -37,7 +37,17 @@ router.include_router(admin_router)
 # =====================================================
 # REGISTER FACULTY
 # =====================================================
+@router.get("/seed-departments")
+def seed_departments(db: Session = Depends(get_db)):
+    from app.models import Department
 
+    depts = ["CSE", "ECE", "EEE", "MECH", "CIVIL"]
+
+    for d in depts:
+        db.add(Department(name=d))
+
+    db.commit()
+    return {"message": "Departments added"}
 @router.post("/register", response_model=schemas.FacultyResponse)
 async def register_faculty(
     faculty_id: str = Form(...),
