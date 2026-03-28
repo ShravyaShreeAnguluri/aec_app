@@ -13,3 +13,4 @@ apscheduler
 bcrypt
 python-jose[cryptography]
 alembic
+email-validator
