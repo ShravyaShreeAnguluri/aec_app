@@ -783,7 +783,7 @@ def forgot_password_link(
 
     db.commit()
 
-    reset_link = f"https://nongrievously-unpickable-araceli.ngrok-free.dev/reset-password-redirect?token={token}"
+    reset_link = f"https://aec-app-da19.onrender.com/reset-password-redirect?token={token}"
 
     try:
         send_reset_email(user.email, reset_link)
