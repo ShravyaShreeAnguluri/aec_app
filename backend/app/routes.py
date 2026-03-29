@@ -316,8 +316,8 @@ MAX_MONTHLY_PERMISSIONS = 3
 # COLLEGE LOCATION SETTINGS
 # =====================================================
 
-COLLEGE_LAT = 16.986119
-COLLEGE_LON = 81.796158
+COLLEGE_LAT = 17.090023
+COLLEGE_LON = 82.066780
 ALLOWED_RADIUS_METERS = 500  # 100 meters
 
 # =====================================================
