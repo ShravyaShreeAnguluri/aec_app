@@ -27,6 +27,7 @@ from .schemas import LoginRequest, OTPRequest, OTPVerifyRequest, FacultyCreate
 from app.leave.leave_models import Leave
 from app.timetable.timetable_routes import router as timetable_router
 from app.admin.admin_routes import router as admin_router
+from zoneinfo import ZoneInfo
 
 router = APIRouter()
 router.include_router(leave_router)
@@ -312,6 +313,9 @@ IDEAL_CLOCK_OUT_END = time(16, 30)
 AUTO_ABSENT_TIME = time(16, 30)
 MAX_MONTHLY_PERMISSIONS = 3
 
+def get_ist_now():
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
+
 # =====================================================
 # COLLEGE LOCATION SETTINGS
 # =====================================================
@@ -341,7 +345,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 def get_today_approved_leave(db: Session, faculty_id: str):
-    today = date.today()
+    today = get_ist_now().date()
     return db.query(Leave).filter(
         Leave.faculty_id == faculty_id,
         Leave.status == "APPROVED",
@@ -365,10 +369,11 @@ async def clock_in_attendance(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    validate_attendance_not_holiday(db, date.today())
-
-    now = datetime.now()
+    now = get_ist_now()
+    today = now.date()
     current_time = now.time()
+    
+    validate_attendance_not_holiday(db, today)
 
     today_leave = get_today_approved_leave(db, faculty.faculty_id)
 
@@ -506,7 +511,11 @@ async def clock_out_attendance(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    validate_attendance_not_holiday(db, date.today())
+    now = get_ist_now()
+    today = now.date()
+    current_time = now.time()
+    
+    validate_attendance_not_holiday(db, today)
 
     distance = calculate_distance(latitude, longitude, COLLEGE_LAT, COLLEGE_LON)
     if distance > ALLOWED_RADIUS_METERS:
@@ -520,9 +529,6 @@ async def clock_out_attendance(
     stored_embedding = pickle.loads(faculty.face_embedding)
     if not compare_faces(live_embedding, stored_embedding):
         raise HTTPException(status_code=401, detail="Face not matched")
-
-    now = datetime.now()
-    current_time = now.time()
 
     today_leave = get_today_approved_leave(db, faculty.faculty_id)
 
@@ -572,8 +578,9 @@ def get_today_attendance_status(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    today = date.today()
-    now = datetime.now().time()
+    ist_now = get_ist_now()
+    today = ist_now.date()
+    now = ist_now.time()
 
     # 1) Holiday / Sunday check
     try:
