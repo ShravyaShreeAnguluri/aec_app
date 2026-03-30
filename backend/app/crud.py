@@ -3,7 +3,11 @@ from . import models, schemas
 from datetime import date, datetime
 from .models import Attendance
 from sqlalchemy import extract, func
+from zoneinfo import ZoneInfo
 
+def get_ist_now():
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
+    
 def create_faculty(db: Session, faculty: schemas.FacultyCreate, face_embedding: bytes):
     db_faculty = models.Faculty(
         faculty_id=faculty.faculty_id,
@@ -24,9 +28,10 @@ def get_faculty_by_email(db: Session, email: str):
     return db.query(models.Faculty).filter(models.Faculty.email == email).first()
 
 def get_today_attendance(db: Session, faculty_id: str):
+    today = get_ist_now().date()
     return db.query(Attendance).filter(
         Attendance.faculty_id == faculty_id,
-        Attendance.date == date.today()
+        Attendance.date == today
     ).first()
 
 def create_attendance(
@@ -42,7 +47,7 @@ def create_attendance(
     attendance = Attendance(
         faculty_id=faculty_id,
         faculty_name=faculty_name,
-        date=date.today(),
+        date=get_ist_now().date(),
         clock_in_time=clock_in_time,
         status=status,
         remarks=remarks,
@@ -57,7 +62,7 @@ def create_attendance(
     return attendance
 
 def get_monthly_permission_count(db: Session, faculty_id: str):
-    now = datetime.now()
+    now = get_ist_now()
     return db.query(Attendance).filter(
         Attendance.faculty_id == faculty_id,
         Attendance.used_permission == True,
@@ -66,9 +71,10 @@ def get_monthly_permission_count(db: Session, faculty_id: str):
     ).count()
 
 def clock_out_attendance(db: Session, faculty_id: str, clock_out_time):
+    today = get_ist_now().date()
     attendance = db.query(Attendance).filter(
-        Attendance.faculty_id == faculty_id,
-        Attendance.date == date.today()
+    Attendance.faculty_id == faculty_id,
+    Attendance.date == today
     ).first()
 
     if not attendance:
@@ -88,8 +94,8 @@ def clock_out_attendance(db: Session, faculty_id: str, clock_out_time):
 
     attendance.clock_out_time = clock_out_time
 
-    dt_in = datetime.combine(date.today(), attendance.clock_in_time)
-    dt_out = datetime.combine(date.today(), clock_out_time)
+    dt_in = datetime.combine(today, attendance.clock_in_time)
+    dt_out = datetime.combine(today, clock_out_time)
 
     total_seconds = (dt_out - dt_in).total_seconds()
     attendance.working_hours = round(max(total_seconds, 0) / 3600, 2)
@@ -102,7 +108,7 @@ def auto_mark_absent_for_faculty(db: Session, faculty_id: str, faculty_name: str
     attendance = Attendance(
         faculty_id=faculty_id,
         faculty_name=faculty_name,
-        date=date.today(),
+        date=get_ist_now().date(),
         clock_in_time=None,
         clock_out_time=None,
         status="ABSENT",
