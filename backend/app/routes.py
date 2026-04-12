@@ -38,26 +38,7 @@ router.include_router(admin_router)
 # =====================================================
 # REGISTER FACULTY
 # =====================================================
-@router.get("/seed-departments")
-def seed_departments(db: Session = Depends(get_db)):
-    from app.models import Department
 
-    depts = ["CSE", "ECE", "EEE", "MECH", "CIVIL"]
-
-    for d in depts:
-        db.add(Department(name=d))
-
-    db.commit()
-    return {"message": "Departments added"}
-from sqlalchemy import text
-
-@router.get("/db-test")
-def db_test(db: Session = Depends(get_db)):
-    try:
-        result = db.execute(text("SELECT 1"))
-        return {"message": "DB connected"}
-    except Exception as e:
-        return {"error": str(e)}
 @router.post("/register", response_model=schemas.FacultyResponse)
 async def register_faculty(
     faculty_id: str = Form(...),
@@ -320,8 +301,8 @@ def get_ist_now():
 # COLLEGE LOCATION SETTINGS
 # =====================================================
 
-COLLEGE_LAT = 17.090023
-COLLEGE_LON = 82.066780
+COLLEGE_LAT = 17.089971
+COLLEGE_LON = 82.066757
 ALLOWED_RADIUS_METERS = 500  # 100 meters
 
 # =====================================================
@@ -345,7 +326,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 def get_today_approved_leave(db: Session, faculty_id: str):
-    today = get_ist_now().date()
+    today = date.today()
     return db.query(Leave).filter(
         Leave.faculty_id == faculty_id,
         Leave.status == "APPROVED",
@@ -369,11 +350,10 @@ async def clock_in_attendance(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    now = get_ist_now()
-    today = now.date()
+    validate_attendance_not_holiday(db, date.today())
+
+    now = datetime.now()
     current_time = now.time()
-    
-    validate_attendance_not_holiday(db, today)
 
     today_leave = get_today_approved_leave(db, faculty.faculty_id)
 
@@ -511,11 +491,7 @@ async def clock_out_attendance(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    now = get_ist_now()
-    today = now.date()
-    current_time = now.time()
-    
-    validate_attendance_not_holiday(db, today)
+    validate_attendance_not_holiday(db, date.today())
 
     distance = calculate_distance(latitude, longitude, COLLEGE_LAT, COLLEGE_LON)
     if distance > ALLOWED_RADIUS_METERS:
@@ -529,6 +505,9 @@ async def clock_out_attendance(
     stored_embedding = pickle.loads(faculty.face_embedding)
     if not compare_faces(live_embedding, stored_embedding):
         raise HTTPException(status_code=401, detail="Face not matched")
+
+    now = datetime.now()
+    current_time = now.time()
 
     today_leave = get_today_approved_leave(db, faculty.faculty_id)
 
@@ -578,9 +557,8 @@ def get_today_attendance_status(
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
 
-    ist_now = get_ist_now()
-    today = ist_now.date()
-    now = ist_now.time()
+    today = date.today()
+    now = datetime.now().time()
 
     # 1) Holiday / Sunday check
     try:
@@ -697,7 +675,7 @@ def get_today_attendance_status(
 
     return {
         "date": str(today),
-        "status": "ABSENT_PENDING_SYNC",
+        "status": "ABSENT",
         "remarks": "Absent",
         "message": "Absent will be auto-marked or has not synced yet",
         "clock_in_time": None,
@@ -771,34 +749,37 @@ def get_attendance_report_summary(
         **summary
     }
 
-# ---------- FORGET-PASSWORD ----------
+# =====================================================
+# FORGOT PASSWORD - SEND RESET LINK
+# =====================================================
 
 @router.post("/forgot-password-link")
 def forgot_password_link(
     data: schemas.ForgotPasswordRequest,
     db: Session = Depends(get_db)
 ):
-    print("FORGOT PASSWORD API HIT")
+    email = data.email.strip().lower()
 
-    user = db.query(Faculty).filter(Faculty.email == data.email).first()
+    user = db.query(Faculty).filter(Faculty.email == email).first()
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # 🔑 Generate reset token
     token = generate_reset_token()
+
     user.reset_token = token
     user.reset_token_expiry = reset_token_expiry()
 
     db.commit()
 
-    reset_link = f"https://aec-app-da19.onrender.com/reset-password-redirect?token={token}"
+    reset_link = f"https://nongrievously-unpickable-araceli.ngrok-free.dev/reset-password-redirect?token={token}"
+    print("RESET LINK SENT:", reset_link)
 
-    try:
-        send_reset_email(user.email, reset_link)
-    except Exception as e:
-        print("EMAIL ERROR:", e)
-        raise HTTPException(status_code=500, detail="Email failed to send")
+    # 📧 Send email
+    send_reset_email(user.email, reset_link)
 
-    return {"message": "Password reset link sent"}
+    return {"message": "Password reset link sent successfully"}
 
 
 @router.post("/reset-password-link")
